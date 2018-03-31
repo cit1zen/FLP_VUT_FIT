@@ -11,11 +11,12 @@ import Data.Maybe
 import System.Exit
 
 
+-- Data and Type definitions
+-- because I am too lazy to put it into separate file
+
 type NonTerm = String
 
 type Term = String
-
--- data RuleSymbols = NonTerm | Term
 
 data Rule = Rule { left :: NonTerm
                  , right :: [String]
@@ -35,11 +36,11 @@ simplifyRule nonterms (Rule left right) =
                             -- A -> a OR A -> #
                             else if head right == "#"
                                  -- A -> #
-                                 then [Rule left ["#", "END"]]
+                                 then [Rule left ["#"]]
                                  -- A -> a
                                  else let new_nonterm = createState left nonterms
                                       in [Rule left [head right, new_nonterm], 
-                                          Rule new_nonterm ["#", "END"]]
+                                          Rule new_nonterm ["#"]]
                        2 -> if last right `elem` nonterms
                             -- A->aB
                             then [Rule left right]
@@ -54,16 +55,21 @@ simplifyRule nonterms (Rule left right) =
                                }
 
 
-simplifyRules :: [NonTerm] -> [Rule] -> [Rule]
-simplifyRules nonterms rules = let splitted = splitRules nonterms rules
-                                   simplified = innerSimplifyRules nonterms (fst splitted) 
-                               in simplified ++ removeEpsilonRules nonterms (snd splitted) simplified
-                               -- TODO epsilon rules
+simplifyRules :: [NonTerm] -> [Term] -> [Rule] -> [Rule]
+simplifyRules nonterms terms rules =
+  let (not_simple, simple) = splitRules nonterms rules
+      new_not_simple = innerSimplifyRules nonterms terms not_simple 
+  in new_not_simple ++ removeEpsilonRules nonterms simple new_not_simple
+    -- TODO epsilon rules
 
 
-innerSimplifyRules :: [NonTerm] -> [Rule] -> [Rule]
-innerSimplifyRules nonterms (rule:rules) = simplifyRule nonterms rule ++ innerSimplifyRules nonterms rules
-innerSimplifyRules nonterms [] = []
+innerSimplifyRules :: [NonTerm] -> [Term] -> [Rule] -> [Rule]
+innerSimplifyRules nonterms terms (rule:rules) = 
+  let new_rules = simplifyRule nonterms rule
+      -- Maybe new nonterms have been created
+      new_nonterms = (getNonTerminals new_rules terms) ++ nonterms
+  in new_rules ++ innerSimplifyRules new_nonterms terms rules
+innerSimplifyRules nonterms terms [] = []
 
 
 -- TODO rename
@@ -127,7 +133,7 @@ getNonTerminals rules terms = deduplicate (parse rules terms)
 
 
 simplifyGrammar :: Grammar -> Grammar
-simplifyGrammar (Grammar nonterms terms rules beg) = let simple_rules = simplifyRules nonterms rules
+simplifyGrammar (Grammar nonterms terms rules beg) = let simple_rules = simplifyRules nonterms terms rules
                                                          new_nonterms = getNonTerminals simple_rules terms
                                                      in Grammar new_nonterms terms simple_rules beg
 
@@ -151,27 +157,25 @@ data Machine = Machine { states :: [State]
                        } deriving (Show)
 
 
--- TODO end states
--- TODO transitions
 convertGrammarToMachine :: Grammar -> Machine
 convertGrammarToMachine (Grammar nonterms terms rules beg) = let mapping = createMapping nonterms
                                                                  states = [snd x | x <- mapping]
-                                                                 transitions = [ruleToTransition rule mapping| rule <-rules] 
+                                                                 transitions = convertRulesToTransitions rules mapping
                                                                  start_state = findMappedNonTerm beg mapping
-                                                                 end_states = [ snd x | x <- mapping, "END" == fst x]
+                                                                 end_states = [findMappedNonTerm (left rule) mapping
+                                                                               | rule <- rules, (length $ right rule) == 1]
                                                              in Machine states terms start_state transitions end_states
 
 
--- TODO find end states
--- TODO remove A -> # -> END
-
-
--- TODO check
--- TODO some function
-ruleToTransition :: Rule -> [(NonTerm, State)] -> Transition
-ruleToTransition (Rule left right) mapping = Transition (findMappedNonTerm left mapping)
-                                                        (head right)
-                                                        (findMappedNonTerm (last right) mapping)
+convertRulesToTransitions :: [Rule] -> [(NonTerm, State)] -> [Transition]
+convertRulesToTransitions (rule : rules) mapping =
+  if (length $ right rule) == 1
+  then convertRulesToTransitions rules mapping
+  else [ruleToTransition rule mapping] ++ (convertRulesToTransitions rules mapping)
+  where ruleToTransition (Rule left right) mapping = Transition (findMappedNonTerm left mapping)
+                                                     (head right)
+                                                     (findMappedNonTerm (last right) mapping)
+convertRulesToTransitions [] _ = []
 
 
 findMappedNonTerm :: NonTerm -> [(NonTerm, State)] -> State
@@ -188,7 +192,6 @@ createMapping nonterms = function nonterms 1
                           function [] i = []
 
 
--- TODO refactor
 createState :: NonTerm -> [NonTerm] -> NonTerm
 createState nonterm states = 
   if nonterm `elem` states
@@ -202,7 +205,6 @@ createState nonterm states =
 
 
 -- TODO check input
--- TODO main
 -- TODO test everything
 
 -- #MAIN
@@ -223,13 +225,16 @@ main = do
   return ()
 
 
+-- Parse input arguments
 parseArgs :: [String] -> (Integer, String)
 parseArgs [] = (2, [])
 parseArgs [x]
+-- Grammar will be at stdin
   | x=="-i" = (0, [])
   | x=="-1" = (1, [])
   | x=="-2" = (2, [])
   | otherwise = (2, [])
+-- Grammar is in some file
 parseArgs [x,y]
   | x=="-i" = (0, y)
   | x=="-1" = (1, y)
@@ -238,6 +243,7 @@ parseArgs [x,y]
 parseArgs _ = error "Something is wrong with the arguments."
 
 
+-- Parse input into our data structure
 parseInputGrammar :: [String] -> Grammar
 parseInputGrammar (nonterms : terms : beg_nonterm : rules) =
   Grammar (splitOn "," nonterms)
@@ -247,6 +253,7 @@ parseInputGrammar (nonterms : terms : beg_nonterm : rules) =
           beg_nonterm
 
 
+-- Print Grammar at stdout
 printGrammar :: Grammar -> IO ()
 printGrammar grammar = do putStrLn (intercalate "," (nonterms grammar))
                           putStrLn (intercalate "," (terms grammar))
@@ -254,6 +261,7 @@ printGrammar grammar = do putStrLn (intercalate "," (nonterms grammar))
                           mapM_ putStrLn [(left r) ++ "->" ++ (intercalate "" (right r)) | r <- rules grammar]
 
 
+-- Print Machine at stdout  
 printMachine :: Machine -> IO ()
 printMachine (Machine states _ start_state transitions end_states) =
   do putStrLn (intercalate "," [show s | s <- states])
