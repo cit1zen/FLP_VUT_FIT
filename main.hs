@@ -26,13 +26,115 @@ data Grammar = Grammar { nonterms :: [NonTerm]
                        , terms :: [Term]
                        , rules :: [Rule]
                        , beg :: NonTerm
-                       } deriving (Show)  
+                       } deriving (Show)
 
-simplifyRule :: [NonTerm] -> Rule -> [Rule]
-simplifyRule nonterms (Rule left right) = 
+type State = Integer
+
+type Symbol = String
+
+data Transition = Transition { origin :: State
+                             , symbol :: Symbol
+                             , dest :: State
+                             } deriving (Show)
+
+data Machine = Machine { states :: [State]
+                       , alphabet :: [Symbol]
+                       , start_state :: State
+                       , transitions :: [Transition]
+                       , end_states :: [State] 
+                       } deriving (Show)
+
+
+-- MAIN and input parsing
+
+-- # MAIN
+main :: IO ()
+main = do
+  -- read arguments and parse arguments
+  args <- getArgs 
+  let (option, inputSource) = parseArgs args
+  -- read input
+  input <- fmap lines $ if (inputSource==[]) 
+      then getContents 
+      else readFile inputSource
+  -- parse input into Grammar
+  let grammar = parseInputGrammar input
+  case option of 0 -> printGrammar grammar
+                 1 -> printGrammar $ transformGrammar grammar
+                 2 -> printMachine $ convertGrammarToMachine $ transformGrammar grammar
+  return ()
+
+-- Argument parsing
+parseArgs :: [String] -> (Integer, String)
+parseArgs [] = (2, [])
+parseArgs [x]
+-- Grammar will be passed using stdin
+  | x=="-i" = (0, [])
+  | x=="-1" = (1, [])
+  | x=="-2" = (2, [])
+  | otherwise = (2, [])
+-- Grammar is in some file
+parseArgs [x,y]
+  | x=="-i" = (0, y)
+  | x=="-1" = (1, y)
+  | x=="-2" = (2, y)
+  | otherwise = (2, y)
+parseArgs _ = error "Something is wrong with the arguments."
+
+-- Parse input into our data structure
+parseInputGrammar :: [String] -> Grammar
+parseInputGrammar (nonterms : terms : beg_nonterm : rules) =
+  Grammar (splitOn "," nonterms)
+          (splitOn "," terms)
+          -- Parse rules
+          [Rule (head dummy) [[x] | x <- (last dummy)]| dummy  <- [splitOn "->" r | r <- rules]]
+          beg_nonterm
+
+
+-- Grammar manipulation and simplification
+-- Functions working with grammar
+
+-- Algorithm from TIN page 26 sentence 3.2
+transformGrammar :: Grammar -> Grammar
+transformGrammar (Grammar nonterms terms rules beg) =
+  let new_rules = transformRules nonterms terms rules
+      new_nonterms = getNonTerminals new_rules terms
+  in Grammar new_nonterms terms new_rules beg
+
+-- Transform all rules into A->aB or A-># form
+transformRules :: [NonTerm] -> [Term] -> [Rule] -> [Rule]
+transformRules nonterms terms rules =
+  let (not_simple, simple) = splitRules nonterms rules
+      new_not_simple = transformNotSimpleRules nonterms terms not_simple
+  in new_not_simple ++ removeEpsilonRules nonterms simple new_not_simple
+
+-- Points 2 and 3 of the TIN algorithm 
+transformNotSimpleRules :: [NonTerm] -> [Term] -> [Rule] -> [Rule]
+transformNotSimpleRules nonterms terms (rule:rules) = 
+  let new_rules = transformRule nonterms rule
+      -- Maybe new nonterms have been created
+      new_nonterms = (getNonTerminals new_rules terms) ++ nonterms
+  in new_rules ++ transformNotSimpleRules new_nonterms terms rules
+transformNotSimpleRules _ _ [] = []
+
+-- Point 1 of the TIN algorithm
+-- Split rules into 2 groups:
+-- 1st = A->a, A->aB, A->#, ... 
+-- 2nd = A->B a.k.a simple rules
+splitRules :: [NonTerm] -> [Rule] -> ([Rule], [Rule])
+splitRules nonterms (rule:rules) = if ((length (right rule)) == 1) && (last (right rule) `elem` nonterms)
+                                   then let result = splitRules nonterms rules
+                                        in (fst result, snd result ++ [rule])
+                                   else let result = splitRules nonterms rules
+                                        in (fst result ++ [rule], snd result)
+splitRules _ [] = ([], [])
+
+-- Tranform rule like A->abC into A->aA1, A1->bC
+transformRule :: [NonTerm] -> Rule -> [Rule]
+transformRule nonterms (Rule left right) = 
   case length right of 1 -> if head right `elem` nonterms
                             -- Remove this one
-                            then error "Rule in form A->B in simplifyRule"
+                            then error "Rule in form A->B in transformRule"
                             -- A -> a OR A -> #
                             else if head right == "#"
                                  -- A -> #
@@ -47,29 +149,22 @@ simplifyRule nonterms (Rule left right) =
                             -- A->ab
                             else let new_nonterm = createState left nonterms
                                  in [Rule left [head right, new_nonterm]]
-                                     ++ simplifyRule (nonterms ++ [new_nonterm]) (Rule new_nonterm (tail right))
-                       -- TODO refactor
-                       x -> do { new_nonterm <- [createState left nonterms]
-                               ; [Rule left [head right, new_nonterm]]
-                                 ++ simplifyRule (nonterms ++ [new_nonterm]) (Rule new_nonterm (tail right))
-                               }
+                                     ++ transformRule (nonterms ++ [new_nonterm]) (Rule new_nonterm (tail right))
+                       -- A->aaaaB, ...
+                       x -> let new_nonterm = createState left nonterms
+                            in [Rule left [head right, new_nonterm]] 
+                               ++ transformRule (nonterms ++ [new_nonterm]) (Rule new_nonterm (tail right))
+
+-- Print Grammar at stdout
+printGrammar :: Grammar -> IO ()
+printGrammar grammar = do putStrLn (intercalate "," (nonterms grammar))
+                          putStrLn (intercalate "," (terms grammar))
+                          putStrLn (beg grammar)
+                          mapM_ putStrLn [(left r) ++ "->" ++ (intercalate "" (right r)) | r <- rules grammar]
 
 
-simplifyRules :: [NonTerm] -> [Term] -> [Rule] -> [Rule]
-simplifyRules nonterms terms rules =
-  let (not_simple, simple) = splitRules nonterms rules
-      new_not_simple = innerSimplifyRules nonterms terms not_simple 
-  in new_not_simple ++ removeEpsilonRules nonterms simple new_not_simple
-    -- TODO epsilon rules
 
 
-innerSimplifyRules :: [NonTerm] -> [Term] -> [Rule] -> [Rule]
-innerSimplifyRules nonterms terms (rule:rules) = 
-  let new_rules = simplifyRule nonterms rule
-      -- Maybe new nonterms have been created
-      new_nonterms = (getNonTerminals new_rules terms) ++ nonterms
-  in new_rules ++ innerSimplifyRules new_nonterms terms rules
-innerSimplifyRules nonterms terms [] = []
 
 
 -- TODO rename
@@ -109,16 +204,7 @@ removeEpsilonRules (nonterm:rest) epsilon_rules normal_rules = removeEpsilonRule
 removeEpsilonRules [] epsilon_rules normal_rules = []
 
 
--- ([Rule], [Rule])
--- 1st = A->a, A->aB, A->#, ...
--- 2nd = A->B
-splitRules :: [NonTerm] -> [Rule] -> ([Rule], [Rule])
-splitRules nonterms (rule:rules) = if ((length (right rule)) == 1) && (last (right rule) `elem` nonterms)
-                                   then let result = splitRules nonterms rules
-                                        in (fst result, snd result ++ [rule])
-                                   else let result = splitRules nonterms rules
-                                        in (fst result ++ [rule], snd result)
-splitRules nonterms [] = ([], [])
+
 
 
 getNonTerminals :: [Rule] -> [Term] -> [NonTerm]
@@ -132,66 +218,56 @@ getNonTerminals rules terms = deduplicate (parse rules terms)
                                 deduplicate [] = []
 
 
-simplifyGrammar :: Grammar -> Grammar
-simplifyGrammar (Grammar nonterms terms rules beg) = let simple_rules = simplifyRules nonterms terms rules
-                                                         new_nonterms = getNonTerminals simple_rules terms
-                                                     in Grammar new_nonterms terms simple_rules beg
 
 
--- TODO S cez epsilon koncovy stav
-
-type State = Integer
-
-type Symbol = String
-
-data Transition = Transition { origin :: State
-                             , symbol :: Symbol
-                             , dest :: State
-                             } deriving (Show)
-
-data Machine = Machine { states :: [State]
-                       , alphabet :: [Symbol]
-                       , start_state :: State
-                       , transitions :: [Transition]
-                       , end_states :: [State] 
-                       } deriving (Show)
 
 
+
+
+
+
+
+
+-- Grammar to machine conversion and Machine manipulation
+
+-- Convert grammar processed by transformGrammar to Nondeterministic Finite Machine
 convertGrammarToMachine :: Grammar -> Machine
 convertGrammarToMachine (Grammar nonterms terms rules beg) = let mapping = createMapping nonterms
                                                                  states = [snd x | x <- mapping]
                                                                  transitions = convertRulesToTransitions rules mapping
-                                                                 start_state = findMappedNonTerm beg mapping
-                                                                 end_states = [findMappedNonTerm (left rule) mapping
+                                                                 start_state = convertNonTermToState beg mapping
+                                                                 end_states = [convertNonTermToState (left rule) mapping
                                                                                | rule <- rules, (length $ right rule) == 1]
                                                              in Machine states terms start_state transitions end_states
 
-
+-- Convert grammar rules into machine transitions
+-- A-># rules are skipped
 convertRulesToTransitions :: [Rule] -> [(NonTerm, State)] -> [Transition]
 convertRulesToTransitions (rule : rules) mapping =
   if (length $ right rule) == 1
   then convertRulesToTransitions rules mapping
   else [ruleToTransition rule mapping] ++ (convertRulesToTransitions rules mapping)
-  where ruleToTransition (Rule left right) mapping = Transition (findMappedNonTerm left mapping)
+  where ruleToTransition (Rule left right) mapping = Transition (convertNonTermToState left mapping)
                                                      (head right)
-                                                     (findMappedNonTerm (last right) mapping)
+                                                     (convertNonTermToState (last right) mapping)
 convertRulesToTransitions [] _ = []
 
+-- Convert grammar nonterm into machine state using provided mapping
+convertNonTermToState :: NonTerm -> [(NonTerm, State)] -> State
+convertNonTermToState nonterm (x : xs) =
+  if fst x == nonterm
+  then snd x
+  else convertNonTermToState nonterm xs
+convertNonTermToState nonterm [] = error "There is no mapping for nonterm."
 
-findMappedNonTerm :: NonTerm -> [(NonTerm, State)] -> State
-findMappedNonTerm nonterm (x : xs) = if fst x == nonterm
-                                     then snd x
-                                     else findMappedNonTerm nonterm xs
-findMappedNonTerm nonterm [] = error "There is no mapping for nonterm."
-
-
+-- Create nonterm to state mapping
 createMapping :: [NonTerm] -> [(NonTerm, State)]
 createMapping nonterms = function nonterms 1
                          where
                           function (x : xs) i = [(x, i)] ++ function xs (i + 1)
                           function [] i = []
 
-
+-- Generate new state
 createState :: NonTerm -> [NonTerm] -> NonTerm
 createState nonterm states = 
   if nonterm `elem` states
@@ -202,64 +278,6 @@ createState nonterm states =
           if (nonterm ++ show suffix) `elem` states
             then customState nonterm states (1 + suffix)
             else nonterm ++ show suffix
-
-
--- TODO check input
--- TODO test everything
-
--- #MAIN
-main :: IO ()
-main = do
-  -- read arguments and parse arguments
-  args <- getArgs 
-  let (option, inputSource) = parseArgs args
-  -- read input
-  input <- fmap lines $ if (inputSource==[]) 
-      then getContents 
-      else readFile inputSource
-  -- parse input into Grammar
-  let grammar = parseInputGrammar input
-  case option of 0 -> printGrammar grammar
-                 1 -> printGrammar $ simplifyGrammar grammar
-                 2 -> printMachine $ convertGrammarToMachine $ simplifyGrammar grammar
-  return ()
-
-
--- Parse input arguments
-parseArgs :: [String] -> (Integer, String)
-parseArgs [] = (2, [])
-parseArgs [x]
--- Grammar will be at stdin
-  | x=="-i" = (0, [])
-  | x=="-1" = (1, [])
-  | x=="-2" = (2, [])
-  | otherwise = (2, [])
--- Grammar is in some file
-parseArgs [x,y]
-  | x=="-i" = (0, y)
-  | x=="-1" = (1, y)
-  | x=="-2" = (2, y)
-  | otherwise = (2, y)
-parseArgs _ = error "Something is wrong with the arguments."
-
-
--- Parse input into our data structure
-parseInputGrammar :: [String] -> Grammar
-parseInputGrammar (nonterms : terms : beg_nonterm : rules) =
-  Grammar (splitOn "," nonterms)
-          (splitOn "," terms)
-          -- Parse rules
-          [Rule (head dummy) [[x] | x <- (last dummy)]| dummy  <- [splitOn "->" r | r <- rules]]
-          beg_nonterm
-
-
--- Print Grammar at stdout
-printGrammar :: Grammar -> IO ()
-printGrammar grammar = do putStrLn (intercalate "," (nonterms grammar))
-                          putStrLn (intercalate "," (terms grammar))
-                          putStrLn (beg grammar)
-                          mapM_ putStrLn [(left r) ++ "->" ++ (intercalate "" (right r)) | r <- rules grammar]
-
 
 -- Print Machine at stdout  
 printMachine :: Machine -> IO ()
