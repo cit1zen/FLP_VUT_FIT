@@ -90,6 +90,18 @@ parseInputGrammar (nonterms : terms : beg_nonterm : rules) =
 -- Grammar manipulation and simplification
 -- Functions working with grammar
 
+-- Generate new nonterm
+createNonterm :: NonTerm -> [NonTerm] -> NonTerm
+createNonterm nonterm all_nonterms = 
+  if nonterm `elem` all_nonterms
+  then creator (head nonterm) 1 all_nonterms
+  else nonterm
+  where
+    creator base suffix nonterms =
+      if ([base] ++ show suffix) `elem` nonterms
+      then creator base (suffix + 1) nonterms
+      else [base] ++ show suffix
+
 -- Algorithm from TIN page 26 sentence 3.2
 transformGrammar :: Grammar -> Grammar
 transformGrammar (Grammar nonterms terms rules beg) =
@@ -137,18 +149,18 @@ transformRule nonterms (Rule left right) =
                                  -- A -> #
                                  then [Rule left ["#"]]
                                  -- A -> a
-                                 else let new_nonterm = createState left nonterms
+                                 else let new_nonterm = createNonterm left nonterms
                                       in [Rule left [head right, new_nonterm], 
                                           Rule new_nonterm ["#"]]
                        2 -> if last right `elem` nonterms
                             -- A->aB
                             then [Rule left right]
                             -- A->ab
-                            else let new_nonterm = createState left nonterms
+                            else let new_nonterm = createNonterm left nonterms
                                  in [Rule left [head right, new_nonterm]]
                                      ++ transformRule (nonterms ++ [new_nonterm]) (Rule new_nonterm (tail right))
                        -- A->aaaaB, ...
-                       x -> let new_nonterm = createState left nonterms
+                       x -> let new_nonterm = createNonterm left nonterms
                             in [Rule left [head right, new_nonterm]] 
                                ++ transformRule (nonterms ++ [new_nonterm]) (Rule new_nonterm (tail right))
 
@@ -188,10 +200,7 @@ removeSimpleRules (nonterm:rest) epsilon_rules normal_rules = removeSimpleRule n
                                                                ++ removeSimpleRules rest epsilon_rules normal_rules
 removeSimpleRules [] epsilon_rules normal_rules = []
 
-
-
-
-
+-- Return all nonterminals
 getNonTerminals :: [Rule] -> [Term] -> [NonTerm]
 getNonTerminals rules terms = deduplicate (parse rules terms)
                               where
@@ -241,18 +250,6 @@ createMapping nonterms = function nonterms 1
                          where
                           function (x : xs) i = [(x, i)] ++ function xs (i + 1)
                           function [] i = []
-
--- Generate new state
-createState :: NonTerm -> [NonTerm] -> NonTerm
-createState nonterm states = 
-  if nonterm `elem` states
-    then customState nonterm states 1
-    else nonterm
-      where
-        customState nonterm states suffix = 
-          if (nonterm ++ show suffix) `elem` states
-            then customState nonterm states (1 + suffix)
-            else nonterm ++ show suffix
 
 -- Print Machine at stdout  
 printMachine :: Machine -> IO ()
