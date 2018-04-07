@@ -3,4 +3,4 @@ all:
 
 .PHONY: clean
 clean:
-	rm ./plg-2-nka ./*.o
+	rm ./plg-2-nka ./*.o ./*.hi
