@@ -1,9 +1,5 @@
--- FLP 1st project - PLG-2-NKA - 2018
--- Adam Ormandy
-
 import System.IO
 import System.Environment
-import Data.Char
 import Data.List
 import Data.List.Split
 import Debug.Trace
@@ -106,7 +102,7 @@ transformRules :: [NonTerm] -> [Term] -> [Rule] -> [Rule]
 transformRules nonterms terms rules =
   let (not_simple, simple) = splitRules nonterms rules
       new_not_simple = transformNotSimpleRules nonterms terms not_simple
-  in new_not_simple ++ removeEpsilonRules nonterms simple new_not_simple
+  in new_not_simple ++ removeSimpleRules nonterms simple new_not_simple
 
 -- Points 2 and 3 of the TIN algorithm 
 transformNotSimpleRules :: [NonTerm] -> [Term] -> [Rule] -> [Rule]
@@ -122,11 +118,12 @@ transformNotSimpleRules _ _ [] = []
 -- 1st = A->a, A->aB, A->#, ... 
 -- 2nd = A->B a.k.a simple rules
 splitRules :: [NonTerm] -> [Rule] -> ([Rule], [Rule])
-splitRules nonterms (rule:rules) = if ((length (right rule)) == 1) && (last (right rule) `elem` nonterms)
-                                   then let result = splitRules nonterms rules
-                                        in (fst result, snd result ++ [rule])
-                                   else let result = splitRules nonterms rules
-                                        in (fst result ++ [rule], snd result)
+splitRules nonterms (rule:rules) = 
+  if ((length (right rule)) == 1) && (last (right rule) `elem` nonterms)
+  then let result = splitRules nonterms rules
+       in (fst result, snd result ++ [rule])
+  else let result = splitRules nonterms rules
+       in (fst result ++ [rule], snd result)
 splitRules _ [] = ([], [])
 
 -- Tranform rule like A->abC into A->aA1, A1->bC
@@ -162,46 +159,34 @@ printGrammar grammar = do putStrLn (intercalate "," (nonterms grammar))
                           putStrLn (beg grammar)
                           mapM_ putStrLn [(left r) ++ "->" ++ (intercalate "" (right r)) | r <- rules grammar]
 
-
-
-
-
-
--- TODO rename
--- prva lajna najde vsetky nove neterminali cez ktore sa vieme dostat cez epsilon
--- TODO refactor this bitch
--- TODO what if A ->* A
--- TODO test this one
--- Returns all the nonterminal reachable by 
-findEpsilonSomething :: NonTerm -> [NonTerm] -> [Rule] -> [NonTerm]
-findEpsilonSomething nonterm found_epsilon epsilon_rules = let epsilon_nonterms = [last (right r) |
+-- All nonterms reachable by simple rules
+reachableBySimple :: NonTerm -> [NonTerm] -> [Rule] -> [NonTerm]
+reachableBySimple nonterm found_epsilon epsilon_rules = let epsilon_nonterms = [last (right r) |
                                                                                    r <- epsilon_rules,
                                                                                    (left r == nonterm) && (not (last (right r) `elem` found_epsilon))]
-                                                               new_found_epsilon = found_epsilon ++ epsilon_nonterms
-                                                               nonterms = concat [findEpsilonSomething new_nonterm new_found_epsilon epsilon_rules | 
-                                                                                  new_nonterm <- epsilon_nonterms]
-                                                               -- Deduplication because I am so random
-                                                               -- TODO special function
-                                                               deduplicate (x : xs) = if x `elem` xs
-                                                                                      then deduplicate xs
-                                                                                      else [x] ++ deduplicate xs
-                                                               deduplicate [] = []
-                                                           in deduplicate (nonterms ++ new_found_epsilon)
+                                                            new_found_epsilon = found_epsilon ++ epsilon_nonterms
+                                                            nonterms = concat [reachableBySimple new_nonterm new_found_epsilon epsilon_rules | 
+                                                                                new_nonterm <- epsilon_nonterms]
+                                                            -- Deduplication because I am so random
+                                                            -- TODO special function
+                                                            deduplicate (x : xs) = if x `elem` xs
+                                                                                   then deduplicate xs
+                                                                                   else [x] ++ deduplicate xs
+                                                            deduplicate [] = []
+                                                        in deduplicate (nonterms ++ new_found_epsilon)
 
-
--- TODO what if epsilon rule is there, some error shit
--- Removes epsilon rule
-removeEpsilonRule :: NonTerm -> [NonTerm] -> [Rule] -> [Rule]
-removeEpsilonRule left_side reach_epsilon normal_rules = [(Rule left_side (right r)) |
+-- Remove one particular epsilon rule
+removeSimpleRule :: NonTerm -> [NonTerm] -> [Rule] -> [Rule]
+removeSimpleRule left_side reach_epsilon normal_rules = [(Rule left_side (right r)) |
                                                           r <- normal_rules,
                                                           (left r) `elem` reach_epsilon]
 
 
--- TODO
-removeEpsilonRules :: [NonTerm] -> [Rule] -> [Rule] -> [Rule]
-removeEpsilonRules (nonterm:rest) epsilon_rules normal_rules = removeEpsilonRule nonterm (findEpsilonSomething nonterm [] epsilon_rules) normal_rules
-                                                               ++ removeEpsilonRules rest epsilon_rules normal_rules
-removeEpsilonRules [] epsilon_rules normal_rules = []
+-- Remove all simple rules 
+removeSimpleRules :: [NonTerm] -> [Rule] -> [Rule] -> [Rule]
+removeSimpleRules (nonterm:rest) epsilon_rules normal_rules = removeSimpleRule nonterm (reachableBySimple nonterm [] epsilon_rules) normal_rules
+                                                               ++ removeSimpleRules rest epsilon_rules normal_rules
+removeSimpleRules [] epsilon_rules normal_rules = []
 
 
 
@@ -216,16 +201,6 @@ getNonTerminals rules terms = deduplicate (parse rules terms)
                                                        then deduplicate xs
                                                        else [x] ++ deduplicate xs
                                 deduplicate [] = []
-
-
-
-
-
-
-
-
-
-
 
 
 -- Grammar to machine conversion and Machine manipulation
@@ -287,7 +262,7 @@ printMachine (Machine states _ start_state transitions end_states) =
      putStrLn (intercalate "," [show s | s <- end_states])
      mapM_ putStrLn [(show $ origin t)
                      ++ ","
-                     ++ (show $ symbol t)
+                     ++ symbol t
                      ++ ","
                      ++ (show $ dest t) 
                      | t <- transitions]
