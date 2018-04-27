@@ -92,7 +92,7 @@ expand(X) :-
 	rotate_counter_z(X).
 
 search :- 
-	forall(edge(_, X), expand(X)),
+	forall((edge(_, X), not(edge(X, _))), expand(X)),
 	(	not(found_solution)
 	->	search
 	;	true
