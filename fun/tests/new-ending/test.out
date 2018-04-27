@@ -1,0 +1,12 @@
+A,A2,A3,B,C,C2
+a,b,c
+A
+A->aA3
+A->cA2
+A2->cB
+A3->aB
+B->#
+B->aC
+B->bB
+C->cC2
+C2->#

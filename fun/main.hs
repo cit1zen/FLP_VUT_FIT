@@ -3,8 +3,6 @@ import System.Environment
 import Data.List
 import Data.List.Split
 import Debug.Trace
-import Data.Maybe
-import System.Exit
 
 
 -- Data and Type definitions
@@ -94,7 +92,8 @@ parseInputGrammar (nonterms : terms : beg_nonterm : rules) =
 createNonterm :: NonTerm -> [NonTerm] -> NonTerm
 createNonterm nonterm all_nonterms = 
   if nonterm `elem` all_nonterms
-  then creator (head nonterm) 1 all_nonterms
+  -- 2 is here instead of 1 to be similar to official output
+  then creator (head nonterm) 2 all_nonterms
   else nonterm
   where
     creator base suffix nonterms =
@@ -106,7 +105,7 @@ createNonterm nonterm all_nonterms =
 transformGrammar :: Grammar -> Grammar
 transformGrammar (Grammar nonterms terms rules beg) =
   let new_rules = transformRules nonterms terms rules
-      new_nonterms = getNonTerminals new_rules terms
+      new_nonterms = sort $ getNonTerminals new_rules terms
   in Grammar new_nonterms terms new_rules beg
 
 -- Transform all rules into A->aB or A-># form
@@ -169,7 +168,7 @@ printGrammar :: Grammar -> IO ()
 printGrammar grammar = do putStrLn (intercalate "," (nonterms grammar))
                           putStrLn (intercalate "," (terms grammar))
                           putStrLn (beg grammar)
-                          mapM_ putStrLn [(left r) ++ "->" ++ (intercalate "" (right r)) | r <- rules grammar]
+                          mapM_ putStrLn $ sort [(left r) ++ "->" ++ (intercalate "" (right r)) | r <- rules grammar]
 
 -- All nonterms reachable by simple rules
 reachableBySimple :: NonTerm -> [NonTerm] -> [Rule] -> [NonTerm]
@@ -257,7 +256,7 @@ printMachine (Machine states _ start_state transitions end_states) =
   do putStrLn (intercalate "," [show s | s <- states])
      putStrLn $ show start_state
      putStrLn (intercalate "," [show s | s <- end_states])
-     mapM_ putStrLn [(show $ origin t)
+     mapM_ putStrLn $ sort $ [(show $ origin t)
                      ++ ","
                      ++ symbol t
                      ++ ","
