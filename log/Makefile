@@ -13,4 +13,4 @@ clean:
 
 .PHONY: zip
 zip:
-	zip flp18-log README.md
+	zip flp18-log.pl tests README.md Makefile

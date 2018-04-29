@@ -2,18 +2,21 @@
 %% Login: xorman00
 %% Meno: Adam Ormandy
 
+% MAIN
 start :-
 	read_lines(RAW),
 	mergeLines(RAW, [], MERGED),
 	filter_list(MERGED, FILTERED),
-	%% SANITATION
+	% SANITATION
 	list_tuple(FILTERED, PREPARED),	
 	assert(root(PREPARED)),
 	assert(edge((0), PREPARED)),
+	assert(counter(0)),
 	search,
 	print_solution,
 	halt.
 
+% Vypise riesenie ak existuje
 print_solution :-
 	edge(_,	
 		(	X,X,X,
@@ -70,7 +73,7 @@ characters_i_hate(X) :-
 filter_list(In, Out) :-
     exclude(characters_i_hate, In, Out).
 
-
+% Urobi vsetky mozne posuny kocky
 expand(X) :- 
 	rotate_clock_1(X),
 	rotate_counter_1(X),
@@ -91,15 +94,27 @@ expand(X) :-
 	rotate_clock_z(X),
 	rotate_counter_z(X).
 
+% V podstate prehladavanie grafu do sirky
+% Rado exploduje, preto je tam ta obmedzovacia podmienka
 search :- 
 	forall((edge(_, X), not(edge(X, _))), expand(X)),
-	(	not(found_solution)
+	(	not(found_solution),
+		not(search_space_exhausted)
 	->	search
 	;	true
 	).
 
-%% %% 43252003274489856000
+% Rubikova kostka ma 43252003274489856000
+% Ale vieme povedat ze ked sa dostaneme do 80 generacie rozvoja
+% Tak asi je nieco zle zo zadanim
+search_space_exhausted :-
+	counter(X),
+	Y is X + 1,
+	retract(counter(X)),
+	assert(counter(Y)),
+	not(counter(80)).
 
+% Ci sme nenasli riesenie
 found_solution :- 
 	edge(_,	
 		(	X,X,X,
@@ -113,16 +128,17 @@ found_solution :-
 			Y,Y,Y
 		)).
 
+% Vypise cestu odtialto az po koren
 write_path(X) :-
 	(	edge(Y, X), not(root(X))
 	-> 	write_path(Y),
-		write_cube(X),
-		write('\n')
-	;	write_cube(X),
-		write('\n')
+		write('\n'),
+		write('\n'),
+		write_cube(X)
+	;	write_cube(X)
 	).
 
-%% TODO
+% Vypise kocku
 write_cube((
 	A5,B5,C5,
 	D5,E5,F5,
@@ -139,16 +155,15 @@ write_cube((
 	format("~a~a~a~n", [A5,B5,C5]),
 	format("~a~a~a~n", [D5,E5,F5]),
 	format("~a~a~a~n", [G5,H5,I5]),
-	format("~a~a~a ~a~a~a ~a~a~a~n", [A1,B1,C1, A2,B2,C2, A3,B3,C3, A4,B4,C4]),
-	format("~a~a~a ~a~a~a ~a~a~a~n", [D1,E1,F1, D2,E2,F2, D3,E3,F3, D4,E4,F4]),
-	format("~a~a~a ~a~a~a ~a~a~a~n", [G1,H1,I1, G2,H2,I2, G3,H3,I3, G4,H4,I4]),
+	format("~a~a~a ~a~a~a ~a~a~a ~a~a~a~n", [A1,B1,C1, A2,B2,C2, A3,B3,C3, A4,B4,C4]),
+	format("~a~a~a ~a~a~a ~a~a~a ~a~a~a~n", [D1,E1,F1, D2,E2,F2, D3,E3,F3, D4,E4,F4]),
+	format("~a~a~a ~a~a~a ~a~a~a ~a~a~a~n", [G1,H1,I1, G2,H2,I2, G3,H3,I3, G4,H4,I4]),
 	format("~a~a~a~n", [A6,B6,C6]),
 	format("~a~a~a~n", [D6,E6,F6]),
-	format("~a~a~a~n", [G6,H6,I6]).
+	format("~a~a~a", [G6,H6,I6]). % ~n chyba aby sme pri vypise nemali newline na konci
 
 
-%% Nasleduje implementacia roznych rotacii kocky
-%% Rotacia okolo stredu 1
+% Nasleduje implementacia roznych rotacii kocky
 rotate_clock_1((
 	A5,B5,C5,
 	D5,E5,F5,
