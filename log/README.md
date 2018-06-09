@@ -1,6 +1,5 @@
 # Riešenie rubikovej kostky v jazyku PROLOG
-##### Login: xorman00
-##### Autor: Adam Ormandy
+##### Autor: Adam Ormandy (xorman00)
 
 ## Popis
 
